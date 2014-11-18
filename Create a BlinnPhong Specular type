@@ -1,0 +1,111 @@
+What?
+Blinn 在计算与估量高光时其实是更有效的一种方式。通过计算 view direction和light direction的中间向量和顶点法线向量的点乘 代替反射光线的向量和顶点法线向量的点乘值。(由于不需要再去计算反射向量，所以效率上有所提高)
+
+Blinn-Phong shading model
+http://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_shading_model
+
+
+
+How to?
+这里使用 Surface Shader实现 Blinn Phong Specular HighLight
+
+首先在 Shader 的Properties Block中定义我们需要的属性
+
+	* 纹理贴图 
+	* 色调
+	* Specular颜色
+	* Specular强度的幂值，因为 点乘积取值范围在[0,1]之间(不可能从一个物体的背面还能看到其正面)，所以幂值越大，体现到光照亮度越弱
+
+     Properties {
+          _MainTint ("Diffuse Tint", Color) = (1.0, 1.0, 1.0, 1.0)
+          _MainTex ("Base (RGB)", 2D) = "whtie" {}
+          _SpecularColor ("Specular Color", Color) = (1.0, 1.0, 1.0, 1.0)
+          _SpecularPower ("Specular Power", Range(0.1, 60)) = 3
+     }
+
+在 SubShader 中定义我们需要的变量与Properties Block中的属性一一对应
+     float4 _MainTint;
+     sampler2D _MainTex;
+     float4 _SpecularColor;
+     float _SpecularPower;
+
+我们需要实现我们自定义的光照模型，将之命名为 CustomBlinnPhong
+因为是 自定义的光照模型，所以需要手动其内部工作原理:
+
+	* 取lightDir和viewDir的中间向量 halfVector
+	* halfVector和该顶点法线向量的点乘值 是我们用来计算 Blinn Phong Specular 的关键
+	* NdotH 表示的就是 Normal和halfVector的dot值
+	* 将SpecularPower作为NdotH的幂计算得到的值表示用于高光的那部分的强度
+	* 定义新的颜色，rgb是在反射光的基础上加上Specualr效果的光的rgb，alpha通道不变
+
+inline fixed4 LightingCustomBlinnPhong (SurfaceOutput s, float3 lightDir, float3 viewDir,float atten ) {
+     float3 halfVector = normalize(lightDir + viewDir);
+     float diff = max(0, dot(s.Normal, lightDir));
+     float NdotH = max(0, dot(s.Normal, halfVector));
+     float spec = pow(NdotH, _SpecularPower);
+  
+     // define a color
+     float4 c;
+     c.rgb = (s.Albedo * _LightColor0.rgb * diff) + (_LightColor0.rgb * _SpecularColor.rgb * spec) * (atten * 2);
+     c.a = s.Alpha;
+     return c;
+}
+
+Source Code
+Shader "Ahn/Specular/CustomBlinnPhongSpecular" {
+     Properties {
+          _MainTint ("Diffuse Tint", Color) = (1.0, 1.0, 1.0, 1.0)
+          _MainTex ("Base (RGB)", 2D) = "whtie" {}
+          _SpecularColor ("Specular Color", Color) = (1.0, 1.0, 1.0, 1.0)
+          _SpecularPower ("Specular Power", Range(0.1, 60)) = 3
+     }
+     SubShader {
+              
+               Tags { "RenderType"="Opaque" }
+               LOD 200
+              
+               CGPROGRAM              
+               #pragma surface surf CustomBlinnPhong
+              
+               // user defined variables
+               float4 _MainTint;
+               sampler2D _MainTex;
+               float4 _SpecularColor;
+               float _SpecularPower;
+              
+               inline fixed4 LightingCustomBlinnPhong (SurfaceOutput s, float3 lightDir, float3 viewDir,float atten ) {
+                    float3 halfVector = normalize(lightDir + viewDir);
+                    float diff = max(0, dot(s.Normal, lightDir));
+                    float NdotH = max(0, dot(s.Normal, halfVector));
+                    float spec = pow(NdotH, _SpecularPower);
+                   
+                    // define a color
+                    float4 c;
+                    c.rgb = (s.Albedo * _LightColor0.rgb * diff) + (_LightColor0.rgb * _SpecularColor.rgb * spec) * (atten * 2);
+                    c.a = s.Alpha;
+                    return c;
+               }
+              
+               struct Input {
+                    float2 uv_MainTex;
+               };
+                   
+               void surf (Input IN, inout SurfaceOutput o){
+                    half4 c = tex2D (_MainTex, IN.uv_MainTex)*_MainTint;
+               o.Albedo = c.rgb;
+               o.Alpha = c.a;
+               }              
+              
+               ENDCG
+         
+     }
+}
+
+
+
+
+
+
+
+
+
